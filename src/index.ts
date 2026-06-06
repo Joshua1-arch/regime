@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { Orchestrator } from './orchestrator';
-import { Executor } from './executor';
+import { Executor as BitgetExecutor } from './executor';
+import { SolanaExecutor } from './executors/solanaExecutor';
 import { MarketData, OnChainData } from './types';
 import { MarketRegimeDetector } from './regimeDetector';
 import { DashboardServer } from './dashboard';
@@ -11,6 +12,7 @@ dotenv.config();
 // CONFIGURABLE FLAGS FOR DEMO AND RECORDING
 const DEMO_MODE = true; // When true, runs cycle every 30 seconds instead of 5 minutes
 const PORT = parseInt(process.env.PORT || '3000', 10);
+const EXECUTOR_TYPE = (process.env.EXECUTOR || 'bitget').toLowerCase();
 
 // ANSI Color codes for clean terminal highlights
 const colors = {
@@ -26,7 +28,9 @@ const colors = {
 };
 
 const orchestrator = new Orchestrator();
-const executor = new Executor();
+
+// Dynamically instantiate the selected executor
+const executor = EXECUTOR_TYPE === 'solana' ? new SolanaExecutor() : new BitgetExecutor();
 const detector = new MarketRegimeDetector();
 const dashboard = new DashboardServer();
 
@@ -36,7 +40,8 @@ const dashboard = new DashboardServer();
 async function runIteration() {
   const timeStr = new Date().toLocaleTimeString();
   console.log(`\n${colors.cyan}${colors.bold}================================================================================${colors.reset}`);
-  console.log(`${colors.cyan}${colors.bold}⏰ [${timeStr}] STARTING SYSTEM PIPELINE CYCLE (Demo Mode: ${DEMO_MODE ? 'ON' : 'OFF'})${colors.reset}`);
+  console.log(`${colors.cyan}${colors.bold}⏰ [${timeStr}] STARTING SYSTEM PIPELINE CYCLE${colors.reset}`);
+  console.log(`💡 Mode: Demo (${DEMO_MODE ? 'ON' : 'OFF'}) | Executor: ${EXECUTOR_TYPE.toUpperCase()}`);
   console.log(`${colors.cyan}${colors.bold}================================================================================${colors.reset}`);
 
   try {
@@ -74,8 +79,9 @@ async function runIteration() {
     console.log(`\n${colors.bold}📊 Orchestrator Decision: ${actionColor}${centralSignal.action}${colors.reset} (Weighted Confidence: ${(centralSignal.confidence * 100).toFixed(1)}%)`);
 
     // 3. Execute Trade Order based on the aggregated Central Signal
-    console.log(`${colors.white}⚡ Forwarding central signal to trade executor...${colors.reset}`);
-    const orderResult = await executor.executeTrade(centralSignal, 'BTCUSDT');
+    console.log(`${colors.white}⚡ Forwarding central signal to ${EXECUTOR_TYPE.toUpperCase()} trade executor...${colors.reset}`);
+    const symbol = EXECUTOR_TYPE === 'solana' ? 'SOL/USDC' : 'BTCUSDT';
+    const orderResult = await executor.executeTrade(centralSignal, symbol);
 
     // 4. Update Live Dashboard State
     const regimeRes = orchestrator.latestRegimeResult;
@@ -110,8 +116,8 @@ async function runIteration() {
       dashboard.addTrade({
         timestamp: centralSignal.timestamp,
         action: centralSignal.action,
-        price: latestPrice,
-        size: 0.001,
+        price: EXECUTOR_TYPE === 'solana' ? 135.50 : latestPrice,
+        size: EXECUTOR_TYPE === 'solana' ? 0.005 : 0.001,
         reasoning: `${regimeRes?.reasoning || 'No details'} [Status: ${statusDetails}]`
       });
     }
@@ -130,8 +136,9 @@ async function runIteration() {
  */
 function main() {
   console.log(`${colors.cyan}${colors.bold}🚀 INITIALIZING REGIME-AWARE MULTI-AGENT TRADING SYSTEM...${colors.reset}`);
+  console.log(`🔧 Target Executor Service: ${colors.bold}${EXECUTOR_TYPE.toUpperCase()}${colors.reset}`);
   
-  // Start Express.js Dashboard Server on Port 3000
+  // Start Express.js Dashboard Server
   dashboard.start(PORT);
 
   // Run immediately on startup

@@ -73,13 +73,21 @@ export class DashboardServer {
     this.state.trades.unshift(trade);
   }
 
-  /**
-   * Starts the Express.js server on the specified port.
-   */
   public start(port: number = 3000) {
     this.server = this.app.listen(port, () => {
       console.log(`🌐 Live Dashboard Server running on http://localhost:${port}`);
     });
+
+    // Render Keep-Alive: Ping self every 10 minutes to prevent sleeping
+    const externalUrl = process.env.RENDER_EXTERNAL_URL;
+    if (externalUrl) {
+      console.log(`📡 Render Keep-Alive enabled. Target: ${externalUrl}`);
+      setInterval(() => {
+        globalThis.fetch(`${externalUrl}/api/status`)
+          .then(res => console.log(`📡 Self-ping response status: ${res.status}`))
+          .catch(err => console.error(`📡 Self-ping failed:`, err.message || err));
+      }, 10 * 60 * 1000); // 10 minutes
+    }
   }
 
   /**
