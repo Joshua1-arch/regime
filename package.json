@@ -1,0 +1,40 @@
+{
+  "name": "regime-aware-trading-system",
+  "version": "1.0.0",
+  "description": "Regime-Aware Multi-Agent Trading System for Bitget Hackathon",
+  "main": "dist/orchestrator.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "ts-node src/index.ts",
+    "test:bitget": "ts-node src/tests/testBitget.ts",
+    "test:qwen": "ts-node src/tests/testQwen.ts",
+    "test:dune": "ts-node src/tests/testDune.ts",
+    "test:regime": "ts-node src/tests/testRegime.ts",
+    "test:agents": "ts-node src/tests/testAgents.ts",
+    "test:orchestrator": "ts-node src/tests/testOrchestrator.ts",
+    "dashboard": "ts-node src/dashboard.ts"
+  },
+  "keywords": [
+    "trading",
+    "agents",
+    "bitget",
+    "qwen",
+    "dune",
+    "typescript"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.17.0",
+    "crypto-js": "^4.2.0",
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/crypto-js": "^4.2.2",
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.14.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.2"
+  }
+}
