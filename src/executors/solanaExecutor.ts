@@ -99,8 +99,28 @@ export class SolanaExecutor {
   }
 
   /**
-   * Executes a simulated Devnet trade by dispatching a real on-chain transfer transaction to Devnet.
-   * This validates real cryptographic transaction building, signing, and RPC block broadcast.
+   * Fetches a real Jupiter V6 swap quote from mainnet routing engine.
+   * The quote shows exactly which pools would be used and the expected output.
+   * Note: We log this as intelligence but execute on devnet via SystemProgram transfer.
+   */
+  async fetchJupiterQuote(inputMint: string, outputMint: string, amount: number): Promise<any> {
+    const LAMPORTS = Math.floor(amount * LAMPORTS_PER_SOL);
+    const url = `https://quote-api.jup.ag/v6/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${LAMPORTS}&slippageBps=50`;
+    try {
+      const res = await globalThis.fetch(url);
+      const json = await res.json();
+      return json;
+    } catch (err: any) {
+      console.warn(`SolanaExecutor: Jupiter quote failed: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Executes a simulated Devnet trade by:
+   * 1. Fetching a real Jupiter V6 quote (mainnet routing intelligence)
+   * 2. Dispatching a real on-chain SystemProgram transfer to Solana Devnet
+   *    (validates real cryptographic transaction building, signing, and RPC broadcast)
    */
   async executeTrade(signal: CentralSignal, symbol: string = 'SOL/USDC'): Promise<any> {
     console.log(`SolanaExecutor: Evaluating signal for Solana execution...`);
@@ -122,14 +142,29 @@ export class SolanaExecutor {
       return { code: '43012', msg: 'Insufficient balance (Airdrop devnet SOL)' };
     }
 
-    // Set up a mock destination / treasury burn address to receive a tiny amount of SOL (representing swap gas & mock value)
+    // SOL mint and USDC mint addresses (mainnet)
+    const SOL_MINT = 'So11111111111111111111111111111111111111112';
+    const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+    const inputMint = signal.action === 'BUY' ? USDC_MINT : SOL_MINT;
+    const outputMint = signal.action === 'BUY' ? SOL_MINT : USDC_MINT;
+
+    // Fetch Jupiter routing quote for intelligence
+    console.log(`SolanaExecutor: 📡 Fetching Jupiter V6 quote for ${signal.action} ${symbol}...`);
+    const quote = await this.fetchJupiterQuote(inputMint, outputMint, 0.005);
+    if (quote && quote.outAmount) {
+      const outSol = parseInt(quote.outAmount) / LAMPORTS_PER_SOL;
+      const routeSteps = quote.routePlan?.length || 1;
+      console.log(`SolanaExecutor: ✅ Jupiter Quote: Expected output ${outSol.toFixed(6)} | Route steps: ${routeSteps} | Price impact: ${quote.priceImpactPct || '0'}%`);
+    } else {
+      console.log(`SolanaExecutor: ⚠️ Jupiter quote unavailable. Proceeding with devnet simulation.`);
+    }
+
+    const tradeAmountSOL = 0.005;
     const mockDestination = Keypair.generate().publicKey;
-    const tradeAmountSOL = 0.005; // tiny size
 
     console.log(`SolanaExecutor: Preparing devnet swap transaction: ${signal.action} ${tradeAmountSOL} SOL`);
 
     try {
-      // Create a SystemProgram transfer transaction
       const transaction = new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: this.wallet.publicKey,
@@ -138,7 +173,6 @@ export class SolanaExecutor {
         })
       );
 
-      // Fetch fresh blockhash
       const { blockhash } = await this.connection.getLatestBlockhash();
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = this.wallet.publicKey;
@@ -154,7 +188,7 @@ export class SolanaExecutor {
           orderId: signature,
           side: signal.action.toLowerCase(),
           size: tradeAmountSOL,
-          price: 135.50 // Mock swap fill price for SOL
+          jupiterQuote: quote ? { outAmount: quote.outAmount, priceImpactPct: quote.priceImpactPct, routeSteps: quote.routePlan?.length } : null
         }
       };
     } catch (err: any) {

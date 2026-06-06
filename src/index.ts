@@ -10,7 +10,7 @@ import { DashboardServer } from './dashboard';
 dotenv.config();
 
 // CONFIGURABLE FLAGS FOR DEMO AND RECORDING
-const DEMO_MODE = true; // When true, runs cycle every 30 seconds instead of 5 minutes
+const DEMO_MODE = process.env.DEMO_MODE === 'true'; // When true, runs cycle every 30 seconds instead of 5 minutes
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const EXECUTOR_TYPE = (process.env.EXECUTOR || 'bitget').toLowerCase();
 
@@ -85,11 +85,17 @@ async function runIteration() {
 
     // 4. Update Live Dashboard State
     const regimeRes = orchestrator.latestRegimeResult;
+    const perfStats = orchestrator.getAdaptiveWeightManager().getPerformanceStats();
     dashboard.updateState({
       btcPrice: latestPrice,
       regime: regimeRes?.regime || 'Unknown',
       confidence: regimeRes?.confidence || 0.5,
       weights: regimeRes?.weights,
+      qwenWeights: regimeRes?.qwenWeights,
+      fearGreedIndex: regimeRes?.marketSnapshot?.fearGreedIndex ?? 50,
+      fearGreedLabel: regimeRes?.marketSnapshot?.fearGreedLabel ?? 'Neutral',
+      totalRounds: perfStats.totalRounds,
+      performanceSummary: orchestrator.getAdaptiveWeightManager().getWinRateSummary(),
       lastSignal: {
         action: centralSignal.action,
         confidence: centralSignal.confidence,
@@ -134,15 +140,18 @@ async function runIteration() {
 /**
  * Main application entry point.
  */
-function main() {
+async function main() {
   console.log(`${colors.cyan}${colors.bold}🚀 INITIALIZING REGIME-AWARE MULTI-AGENT TRADING SYSTEM...${colors.reset}`);
   console.log(`🔧 Target Executor Service: ${colors.bold}${EXECUTOR_TYPE.toUpperCase()}${colors.reset}`);
   
+  // Sync bandit performance database to MongoDB Atlas if available
+  await orchestrator.initialize();
+
   // Start Express.js Dashboard Server
   dashboard.start(PORT);
 
   // Run immediately on startup
-  runIteration();
+  await runIteration();
 
   // Schedule to run every 30 seconds if DEMO_MODE is true, otherwise every 5 minutes
   const intervalMs = DEMO_MODE ? 30 * 1000 : 5 * 60 * 1000;

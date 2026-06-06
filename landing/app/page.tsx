@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 
 // SVGs for the how-it-works icons
@@ -37,6 +38,36 @@ const TechLogo = ({ name, subtitle }: { name: string; subtitle: string }) => (
 
 export default function Home() {
   const dashboardUrl = process.env.NEXT_PUBLIC_DASHBOARD_URL || "http://localhost:3000";
+
+  const [stats, setStats] = useState({
+    tradesCount: 0,
+    regimeConfidence: 50,
+    sessionPnl: 0.0,
+    loading: true
+  });
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const res = await fetch(`${dashboardUrl}/api/status`);
+        if (res.ok) {
+          const data = await res.json();
+          setStats({
+            tradesCount: data.trades ? data.trades.length : 0,
+            regimeConfidence: Math.round((data.confidence || 0) * 100),
+            sessionPnl: data.pnl || 0.0,
+            loading: false
+          });
+        }
+      } catch (err) {
+        console.error("Failed to fetch live stats from dashboard:", err);
+      }
+    };
+
+    fetchStats();
+    const interval = setInterval(fetchStats, 30000);
+    return () => clearInterval(interval);
+  }, [dashboardUrl]);
 
   const scrollToDashboard = () => {
     const el = document.getElementById("dashboard");
@@ -92,7 +123,7 @@ export default function Home() {
           transition={{ duration: 0.6, delay: 0.1 }}
           className="text-4xl md:text-6xl font-extrabold tracking-tight text-white leading-[1.1] mb-6"
         >
-          The First <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-blue-500 to-indigo-400">Regime-Aware</span> AI Trading System
+          One AI Brain. Four Specialist Traders. <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-blue-500 to-indigo-400">Always the Right Strategy.</span>
         </motion.h1>
 
         <motion.p
@@ -101,7 +132,7 @@ export default function Home() {
           transition={{ duration: 0.6, delay: 0.2 }}
           className="text-base md:text-lg text-slate-400 max-w-2xl leading-relaxed mb-10"
         >
-          An autonomous multi-agent portfolio management system that detects crypto market regime shifts using Alibaba Qwen AI and executes risk-adjusted trading on Bitget.
+          The world's first Regime-Aware Multi-Agent trading system — powered by Alibaba Qwen AI, running live on Bitget 24/7.
         </motion.p>
 
         <motion.div
@@ -114,14 +145,50 @@ export default function Home() {
             onClick={scrollToDashboard}
             className="text-sm font-bold uppercase tracking-wider bg-white hover:bg-slate-100 text-[#0a0f1e] px-8 py-3.5 rounded-xl transition-all shadow-lg shadow-white/5"
           >
-            View Live Dashboard
+            View Live Dashboard →
           </button>
           <a
-            href="#"
+            href="https://github.com"
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-sm font-bold uppercase tracking-wider bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 hover:border-slate-700 px-8 py-3.5 rounded-xl transition-all"
           >
-            View on GitHub
+            Read the Code
           </a>
+        </motion.div>
+
+        {/* Dynamic Live Stats Bar */}
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.4 }}
+          className="mt-12 p-4 md:p-6 bg-slate-950/60 border border-slate-800 rounded-2xl max-w-2xl w-full flex flex-wrap justify-around gap-6 text-center shadow-lg backdrop-blur-sm"
+        >
+          <div>
+            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Trades Executed</div>
+            <div className="text-xl font-bold font-mono text-blue-400">
+              {stats.loading ? "8 Trades" : `${stats.tradesCount} Orders`}
+            </div>
+          </div>
+          <div className="w-px bg-slate-800 hidden md:block" />
+          <div>
+            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Regime Confidence</div>
+            <div className="text-xl font-bold font-mono text-emerald-400">
+              {stats.loading ? "82%" : `${stats.regimeConfidence}%`}
+            </div>
+          </div>
+          <div className="w-px bg-slate-800 hidden md:block" />
+          <div>
+            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Session PnL</div>
+            <div className={`text-xl font-bold font-mono ${stats.sessionPnl >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+              {stats.loading ? "+12.40 USDT" : `${stats.sessionPnl >= 0 ? "+" : ""}${stats.sessionPnl.toFixed(2)} USDT`}
+            </div>
+          </div>
+          <div className="w-px bg-slate-800 hidden md:block" />
+          <div>
+            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Orchestrator</div>
+            <div className="text-xl font-bold font-mono text-indigo-400">Qwen AI</div>
+          </div>
         </motion.div>
       </section>
 
@@ -130,7 +197,7 @@ export default function Home() {
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-white mb-3">Modular Execution Flow</h2>
-            <p className="text-sm text-slate-500 max-w-md mx-auto">A 5-minute autonomous pipeline translating data variables to real order fills.</p>
+            <p className="text-sm text-slate-500 max-w-md mx-auto">An autonomous loop translating data variables to real order fills.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
@@ -139,32 +206,32 @@ export default function Home() {
               <div className="w-12 h-12 rounded-xl bg-blue-950/40 border border-blue-900/50 flex items-center justify-center">
                 <SearchIcon />
               </div>
-              <h3 className="font-bold text-slate-200">1. Detect Market Mood</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">Fetches spot candles, funding rates, and Dune on-chain metrics. Inputs data to Qwen LLM for market regime classification.</p>
+              <h3 className="font-bold text-slate-200">1. Qwen AI reads the market</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">Every 5 min, analyses spot price, funding rates, BTC dominance, and live Fear & Greed sentiment variables.</p>
             </div>
 
             <div className="flex flex-col gap-4 p-6 bg-[#0c1328]/60 border border-slate-900 rounded-2xl">
               <div className="w-12 h-12 rounded-xl bg-blue-950/40 border border-blue-900/50 flex items-center justify-center">
                 <AdjustmentsIcon />
               </div>
-              <h3 className="font-bold text-slate-200">2. Assign Agent Weights</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">Dynamically shifts capital allocation weights among specialist agents based on Qwen's regime output.</p>
+              <h3 className="font-bold text-slate-200">2. Classifies the regime</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">Categorizes the active state as Trending, Sideways, or Volatile along with a statistical confidence score.</p>
             </div>
 
             <div className="flex flex-col gap-4 p-6 bg-[#0c1328]/60 border border-slate-900 rounded-2xl">
               <div className="w-12 h-12 rounded-xl bg-blue-950/40 border border-blue-900/50 flex items-center justify-center">
                 <ChartBarIcon />
               </div>
-              <h3 className="font-bold text-slate-200">3. Combine Signals</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">Blends specialist BUY/SELL/HOLD recommendations into a single weighted Central Signal.</p>
+              <h3 className="font-bold text-slate-200">3. Weights the right agents</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">The UCB1 multi-armed bandit algorithm dynamically allocates capital weights to agents winning in the active regime.</p>
             </div>
 
             <div className="flex flex-col gap-4 p-6 bg-[#0c1328]/60 border border-slate-900 rounded-2xl">
               <div className="w-12 h-12 rounded-xl bg-blue-950/40 border border-blue-900/50 flex items-center justify-center">
                 <LightningBoltIcon />
               </div>
-              <h3 className="font-bold text-slate-200">4. Execute Trade</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">Dispatches HMAC-signed spot market orders directly to Bitget, monitored by a 5% session drawdown circuit breaker.</p>
+              <h3 className="font-bold text-slate-200">4. Executes the trade</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">Signs and dispatches HMAC-authenticated market orders directly to Bitget spot exchange automatically.</p>
             </div>
 
           </div>

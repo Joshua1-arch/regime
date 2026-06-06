@@ -4,10 +4,12 @@ import { TrendAgent } from './agents/trendAgent';
 import { MeanReversionAgent } from './agents/meanReversionAgent';
 import { MomentumAgent } from './agents/momentumAgent';
 import { NewsAgent } from './agents/newsAgent';
+import { AdaptiveWeightManager, Regime } from './adaptiveWeightManager';
 
 /**
- * The Orchestrator coordinates the market regime detection and coordinates signals
- * across all specialist trading agents. It acts as the central intelligence of the system.
+ * The Orchestrator coordinates market regime detection and signal aggregation
+ * across all specialist trading agents. It now uses a UCB1 Multi-Armed Bandit
+ * AdaptiveWeightManager to continuously learn which agents perform best per regime.
  */
 export class Orchestrator {
   private regimeDetector: MarketRegimeDetector;
@@ -15,31 +17,38 @@ export class Orchestrator {
   private meanReversionAgent: MeanReversionAgent;
   private momentumAgent: MomentumAgent;
   private newsAgent: NewsAgent;
-  
+  private adaptiveWeights: AdaptiveWeightManager;
+
   public latestRegimeResult: any = null;
 
-  /**
-   * Initializes the Orchestrator with instances of all specialist agents and the regime detector.
-   */
+  // State for outcome tracking between cycles
+  private lastPrice: number = 0;
+  private lastRegime: Regime = 'Unknown';
+  private lastSignals: AgentSignal[] = [];
+
   constructor() {
     this.regimeDetector = new MarketRegimeDetector();
     this.trendAgent = new TrendAgent();
     this.meanReversionAgent = new MeanReversionAgent();
     this.momentumAgent = new MomentumAgent();
     this.newsAgent = new NewsAgent();
+    this.adaptiveWeights = new AdaptiveWeightManager();
+  }
+
+  /**
+   * Initializes database connections for bandit learning performance.
+   */
+  async initialize(): Promise<void> {
+    await this.adaptiveWeights.connect();
   }
 
   /**
    * Orchestrates the full analysis pipeline:
-   * 1. Detects the current market regime and gets capital weights.
-   * 2. Triggers signal generation from all active specialist agents.
-   * 3. Aggregates individual agent signals weighted by the regime allocation.
-   * 
-   * @param marketData - Current market price data
-   * @param onChainData - On-chain indicators (Dune Analytics)
-   * @param historicalCandles - Price history (used by technical agents)
-   * @param newsHeadlines - Market news (used by the news agent)
-   * @returns A promise resolving to the final combined trade recommendation
+   * 1. Records the outcome of the PREVIOUS cycle (for bandit learning).
+   * 2. Detects the current market regime via Qwen.
+   * 3. Computes blended weights (60% empirical UCB1 + 40% Qwen structural).
+   * 4. Triggers signal generation from all specialist agents.
+   * 5. Aggregates signals using blended adaptive weights.
    */
   async runPipeline(
     marketData: MarketData,
@@ -49,25 +58,50 @@ export class Orchestrator {
   ): Promise<CentralSignal> {
     console.log('Orchestrator: Executing central intelligence pipeline...');
 
-    // 1. Detect market regime
-    const regimeResult = await this.regimeDetector.detectRegime(marketData, onChainData);
-    this.latestRegimeResult = regimeResult;
-    console.log(`Orchestrator: Detected Regime is "${regimeResult.regime}" with weights:`, JSON.stringify(regimeResult.weights, null, 2));
-
-    // Retrieve active market price from candles if marketData price is empty
     const currentPrice = marketData.price || (historicalCandles.length > 0 ? parseFloat(historicalCandles[historicalCandles.length - 1][4]) : 0);
     const updatedMarketData: MarketData = { ...marketData, price: currentPrice };
 
-    // 2. Fetch current funding rate for the news agent
-    let fundingRate = regimeResult.marketSnapshot?.fundingRate || 0.0;
+    // ── STEP 1: Record previous cycle outcome for bandit learning ──────────
+    if (this.lastPrice > 0 && this.lastSignals.length > 0) {
+      const priceChangePct = (currentPrice - this.lastPrice) / this.lastPrice;
+      this.adaptiveWeights.recordOutcome(
+        this.lastRegime,
+        this.lastSignals.map(s => ({ agentId: s.agentId, action: s.action })),
+        priceChangePct
+      );
+    }
 
-    // 3. Trigger signal generation across all agents in parallel
+    // ── STEP 2: Detect market regime via Qwen ─────────────────────────────
+    const regimeResult = await this.regimeDetector.detectRegime(updatedMarketData, onChainData);
+    const regime = regimeResult.regime as Regime;
+    this.latestRegimeResult = regimeResult;
+
+    // ── STEP 3: Compute blended UCB1 + Qwen weights ───────────────────────
+    const blendedWeights = this.adaptiveWeights.computeBlendedWeights(regime, regimeResult.weights);
+
+    // Expose blended weights to dashboard (override pure Qwen weights)
+    this.latestRegimeResult = {
+      ...regimeResult,
+      weights: blendedWeights,
+      qwenWeights: regimeResult.weights, // Preserve original Qwen weights for comparison
+      performanceSummary: this.adaptiveWeights.getWinRateSummary()
+    };
+
+    console.log(`Orchestrator: Regime "${regime}" | Blended weights (UCB1 + Qwen):`);
+    console.log(`  📊 Trend:        ${(blendedWeights.trendAgent * 100).toFixed(1)}%`);
+    console.log(`  📊 MeanReversion: ${(blendedWeights.meanReversionAgent * 100).toFixed(1)}%`);
+    console.log(`  📊 Momentum:     ${(blendedWeights.momentumAgent * 100).toFixed(1)}%`);
+    console.log(`  📊 News:         ${(blendedWeights.newsAgent * 100).toFixed(1)}%`);
+
+    // ── STEP 4: Generate agent signals in parallel ─────────────────────────
+    let fundingRate = regimeResult.marketSnapshot?.fundingRate || 0.0;
     console.log('Orchestrator: Emitting signals to Trend, Mean Reversion, Momentum, and News Agents...');
+
     const [trendSig, meanRevSig, momentumSig, newsSig] = await Promise.all([
       this.trendAgent.generateSignal(updatedMarketData, historicalCandles),
       this.meanReversionAgent.generateSignal(updatedMarketData, historicalCandles),
       this.momentumAgent.generateSignal(updatedMarketData, historicalCandles),
-      this.newsAgent.generateSignal(updatedMarketData, newsHeadlines, { fundingRate, regime: regimeResult.regime })
+      this.newsAgent.generateSignal(updatedMarketData, newsHeadlines, { fundingRate, regime })
     ]);
 
     const signals = [trendSig, meanRevSig, momentumSig, newsSig];
@@ -76,32 +110,29 @@ export class Orchestrator {
       console.log(` - [${s.agentId}]: ${s.action} (Confidence: ${(s.confidence * 100).toFixed(1)}%)`);
     });
 
-    // 4. Aggregate signals based on regime weights
-    const centralSignal = this.aggregateSignals(signals, regimeResult.weights);
+    // ── STEP 5: Aggregate signals with blended adaptive weights ───────────
+    const centralSignal = this.aggregateSignals(signals, blendedWeights);
     console.log(`Orchestrator: Formulated Central Signal: ${centralSignal.action} (Weighted Confidence: ${(centralSignal.confidence * 100).toFixed(1)}%)`);
+
+    // Store state for next cycle's outcome evaluation
+    this.lastPrice = currentPrice;
+    this.lastRegime = regime;
+    this.lastSignals = signals;
 
     return centralSignal;
   }
 
   /**
-   * Combines individual agent recommendations into a single weighted action and confidence score.
-   * 
-   * @param signals - Array of signals generated by the specialist agents
-   * @param weights - Active capital weights calculated by the regime detector
-   * @returns The aggregated trade action and weighted confidence
+   * Combines individual agent recommendations into a single weighted action.
    */
-  private aggregateSignals(
-    signals: AgentSignal[],
-    weights: RegimeWeights
-  ): CentralSignal {
+  private aggregateSignals(signals: AgentSignal[], weights: RegimeWeights): CentralSignal {
     const timestamp = new Date().toISOString();
 
-    // Mapping agent IDs to their respective regime weights
     const weightMap: { [key: string]: number } = {
-      trend_agent: weights.trendAgent,
-      mean_reversion_agent: weights.meanReversionAgent,
-      momentum_agent: weights.momentumAgent,
-      news_agent: weights.newsAgent
+      trend_agent:           weights.trendAgent,
+      mean_reversion_agent:  weights.meanReversionAgent,
+      momentum_agent:        weights.momentumAgent,
+      news_agent:            weights.newsAgent
     };
 
     let weightedScoreSum = 0;
@@ -109,30 +140,20 @@ export class Orchestrator {
 
     for (const signal of signals) {
       const weight = weightMap[signal.agentId] ?? 0.25;
-      
-      // Convert action to numerical value: BUY = +1, SELL = -1, HOLD = 0
       let numericAction = 0;
-      if (signal.action === 'BUY') {
-        numericAction = 1;
-      } else if (signal.action === 'SELL') {
-        numericAction = -1;
-      }
+      if (signal.action === 'BUY') numericAction = 1;
+      else if (signal.action === 'SELL') numericAction = -1;
 
-      // Add to weighted score: Weight * Confidence * Action Value
       weightedScoreSum += weight * signal.confidence * numericAction;
-      
-      // Cumulative confidence: Weight * Confidence
       confidenceSum += weight * signal.confidence;
     }
 
-    // Determine target action based on weighted score
-    // Thresholds: score > 0.2 = BUY, score < -0.2 = SELL, else HOLD
+    const isDemo = process.env.DEMO_MODE === 'true';
+    const threshold = isDemo ? 0.1 : 0.2;
+
     let action: TradeAction = 'HOLD';
-    if (weightedScoreSum > 0.2) {
-      action = 'BUY';
-    } else if (weightedScoreSum < -0.2) {
-      action = 'SELL';
-    }
+    if (weightedScoreSum > threshold) action = 'BUY';
+    else if (weightedScoreSum < -threshold) action = 'SELL';
 
     return {
       action,
@@ -140,5 +161,12 @@ export class Orchestrator {
       agentSignals: signals,
       timestamp
     };
+  }
+
+  /**
+   * Exposes the adaptive weight manager for dashboard integration.
+   */
+  getAdaptiveWeightManager(): AdaptiveWeightManager {
+    return this.adaptiveWeights;
   }
 }

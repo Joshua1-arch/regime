@@ -1,247 +1,241 @@
-import dotenv from 'dotenv';
+import axios from 'axios';
 import { MarketRegimeDetector } from './regimeDetector';
 import { TrendAgent } from './agents/trendAgent';
 import { MeanReversionAgent } from './agents/meanReversionAgent';
 import { MomentumAgent } from './agents/momentumAgent';
 import { MarketData, AgentSignal, RegimeWeights } from './types';
 
-// Load environment variables
-dotenv.config();
-
 const detector = new MarketRegimeDetector();
 const trendAgent = new TrendAgent();
 const meanReversionAgent = new MeanReversionAgent();
 const momentumAgent = new MomentumAgent();
 
-// ANSI Color codes for clean terminal highlights
-const colors = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  green: '\x1b[32m',
-  red: '\x1b[31m',
-  yellow: '\x1b[33m',
-  blue: '\x1b[34m',
-  cyan: '\x1b[36m',
-  white: '\x1b[37m'
-};
+export interface BacktestDataPoint {
+  timestamp: number;         // Unix ms
+  price: number;
+  systemEquity: number;
+  holdEquity: number;
+  regime: string;
+  drawdown: number;          // 0.0 - 1.0
+}
 
-/**
- * Custom math helper to calculate Standard Deviation
- */
+export interface BacktestResult {
+  dataPoints: BacktestDataPoint[];
+  startingCapital: number;
+  endingCapital: number;
+  holdEndingCapital: number;
+  systemReturnPct: number;
+  holdReturnPct: number;
+  outperformancePct: number;
+  totalTrades: number;
+  winRate: number;
+  maxDrawdownPct: number;
+  sharpeRatio: number;
+  regimeCounts: Record<string, number>;
+  regimePnL: Record<string, number>;
+  completedAt: string;
+}
+
 function stdDev(values: number[], mean: number): number {
-  const squareDiffs = values.map(value => Math.pow(value - mean, 2));
-  const avgSquareDiff = squareDiffs.reduce((sum, val) => sum + val, 0) / values.length;
-  return Math.sqrt(avgSquareDiff);
+  const squareDiffs = values.map(v => Math.pow(v - mean, 2));
+  return Math.sqrt(squareDiffs.reduce((s, v) => s + v, 0) / values.length);
 }
 
-/**
- * Local simulation of Wilder's RSI for backtesting efficiency
- */
-function calculateRSI(closes: number[]): number {
-  if (closes.length < 15) return 50;
-  let gains = 0;
-  let losses = 0;
-
-  for (let i = 1; i < 15; i++) {
-    const difference = closes[closes.length - 15 + i] - closes[closes.length - 15 + i - 1];
-    if (difference >= 0) {
-      gains += difference;
-    } else {
-      losses -= difference;
-    }
+// Local simplified detector logic to speed up historical simulations
+function localDetectRegime(price: number, ema12: number, ema26: number, vol: number) {
+  const diffPct = Math.abs(ema12 - ema26) / ema26;
+  let regime = 'Sideways';
+  
+  if (diffPct > 0.005) {
+    regime = 'Trending';
+  } else if (vol > price * 0.008) {
+    regime = 'Volatile';
   }
 
-  let avgGain = gains / 14;
-  let avgLoss = losses / 14;
+  const weights = {
+    trendAgent: regime === 'Trending' ? 0.5 : regime === 'Volatile' ? 0.15 : 0.15,
+    meanReversionAgent: regime === 'Sideways' ? 0.55 : regime === 'Volatile' ? 0.15 : 0.15,
+    momentumAgent: regime === 'Volatile' ? 0.45 : regime === 'Trending' ? 0.25 : 0.15,
+    newsAgent: regime === 'Volatile' ? 0.25 : 0.1
+  };
 
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return 100 - (100 / (1 + rs));
+  return { regime, weights };
 }
 
-/**
- * Local fast regime and weight assignment mapping (emulates Qwen LLM output rules)
- */
-function localDetectRegime(price: number, ema12: number, ema26: number, volatility: number, rsi: number): { regime: string; weights: RegimeWeights } {
-  const spreadPercent = Math.abs(ema12 - ema26) / price;
+export async function computeBacktest(): Promise<BacktestResult> {
+  const limit = 30 * 24; // 30 days of hourly candles = 720 candles
+  const symbol = 'BTCUSDT';
+  const granularity = '1h';
+  const url = `https://api.bitget.com/api/v2/spot/market/candles?symbol=${symbol}&granularity=${granularity}&limit=${limit}`;
 
-  if (volatility > 450) {
-    return {
-      regime: 'Volatile',
-      weights: { trendAgent: 0.2, meanReversionAgent: 0.1, momentumAgent: 0.4, newsAgent: 0.3 }
-    };
-  } else if (spreadPercent > 0.005) {
-    return {
-      regime: 'Trending',
-      weights: { trendAgent: 0.4, meanReversionAgent: 0.1, momentumAgent: 0.3, newsAgent: 0.2 }
-    };
-  } else {
-    return {
-      regime: 'Sideways',
-      weights: { trendAgent: 0.2, meanReversionAgent: 0.4, momentumAgent: 0.1, newsAgent: 0.3 }
-    };
+  const res = await axios.get(url);
+  if (!res.data || res.data.code !== '00000') {
+    throw new Error(`Bitget backtest data fetch failed: ${res.data?.msg}`);
   }
-}
 
-async function runBacktest() {
-  console.log(`${colors.cyan}${colors.bold}======================================================================${colors.reset}`);
-  console.log(`${colors.cyan}${colors.bold}📊 STARTING REGIME-AWARE MULTI-AGENT BACKTESTING ENGINE${colors.reset}`);
-  console.log(`${colors.cyan}${colors.bold}======================================================================${colors.reset}`);
-  console.log('⏳ Fetching 30 days of hourly BTC spot candles from Bitget...');
+  const rawCandles = res.data.data; // Oldest first
+  if (rawCandles.length < 100) {
+    throw new Error('Not enough historical candles returned for backtesting.');
+  }
 
-  try {
-    // 720 candles = 30 days * 24 hours
-    const rawCandles = await detector.fetchBTCSpotCandles(720);
-    if (!rawCandles || rawCandles.length < 100) {
-      throw new Error(`Insufficient candle history. Fetched ${rawCandles?.length || 0} candles.`);
+  const STARTING_CAPITAL = 10000;
+  let cash = STARTING_CAPITAL;
+  let btcPosition = 0;
+  let entryPrice = 0;
+  let peakEquity = STARTING_CAPITAL;
+  let maxDrawdown = 0;
+  let prevEquity = STARTING_CAPITAL;
+
+  let totalTrades = 0;
+  let winningTrades = 0;
+  const hourlyReturns: number[] = [];
+  const dataPoints: BacktestDataPoint[] = [];
+
+  const regimeCounts: Record<string, number> = { Trending: 0, Sideways: 0, Volatile: 0 };
+  const regimePnL: Record<string, number> = { Trending: 0, Sideways: 0, Volatile: 0 };
+
+  const startPrice = parseFloat(rawCandles[50][4]);
+  const holdBtc = STARTING_CAPITAL / startPrice;
+
+  // Run backtest over the candles (starting at index 50 to have enough history for indicators)
+  for (let i = 50; i < rawCandles.length; i++) {
+    const subCandles = rawCandles.slice(i - 50, i);
+    const currentPrice = parseFloat(rawCandles[i][4]);
+    const candleTimestamp = parseInt(rawCandles[i][0]);
+
+    const closes = subCandles.map((c: any) => parseFloat(c[4]));
+    const avg = closes.reduce((a: number, b: number) => a + b, 0) / closes.length;
+    const ema12 = closes.slice(-12).reduce((a: number, b: number) => a + b, 0) / 12;
+    const ema26 = closes.slice(-26).reduce((a: number, b: number) => a + b, 0) / 26;
+    const vol = stdDev(closes.slice(-24), avg);
+
+    const { regime, weights } = localDetectRegime(currentPrice, ema12, ema26, vol);
+    regimeCounts[regime] = (regimeCounts[regime] || 0) + 1;
+
+    const dummyMarket: MarketData = { symbol: 'BTCUSDT', price: currentPrice, timestamp: new Date(candleTimestamp).toISOString() };
+
+    const [trendSig, meanSig, momSig] = await Promise.all([
+      trendAgent.generateSignal(dummyMarket, subCandles),
+      meanReversionAgent.generateSignal(dummyMarket, subCandles),
+      momentumAgent.generateSignal(dummyMarket, subCandles)
+    ]);
+
+    const price1hChange = (closes[closes.length - 1] - closes[closes.length - 2]) / closes[closes.length - 2];
+    const newsAction = price1hChange > 0.002 ? 'BUY' : price1hChange < -0.002 ? 'SELL' : 'HOLD';
+    const newsSig: AgentSignal = { agentId: 'news_agent', action: newsAction, confidence: 0.75, reasoning: '', timestamp: new Date().toISOString() };
+
+    const signals = [trendSig, meanSig, momSig, newsSig];
+    const weightMap: Record<string, number> = {
+      trend_agent: weights.trendAgent,
+      mean_reversion_agent: weights.meanReversionAgent,
+      momentum_agent: weights.momentumAgent,
+      news_agent: weights.newsAgent
+    };
+
+    let score = 0;
+    for (const s of signals) {
+      const v = s.action === 'BUY' ? 1 : s.action === 'SELL' ? -1 : 0;
+      score += (weightMap[s.agentId] ?? 0.25) * s.confidence * v;
     }
 
-    console.log(`✅ Loaded ${rawCandles.length} hourly candles.`);
+    const decision = score > 0.2 ? 'BUY' : score < -0.2 ? 'SELL' : 'HOLD';
 
-    // Simulation variables
-    let cash = 10000.0; // Starting capital in USDT
-    let btcPosition = 0.0; // BTC holdings
-    let peakEquity = 10000.0;
-    let maxDrawdown = 0.0;
-    
-    // For Sharpe Ratio calculations
-    const hourlyReturns: number[] = [];
-    let prevEquity = 10000.0;
+    if (decision === 'BUY' && cash > 50) {
+      const buyAmount = cash * 0.95;
+      btcPosition += (buyAmount * 0.999) / currentPrice;
+      cash -= buyAmount;
+      entryPrice = currentPrice;
+      totalTrades++;
+    } else if (decision === 'SELL' && btcPosition > 0.0001) {
+      const sellVal = btcPosition * currentPrice * 0.999;
+      cash += sellVal;
+      btcPosition = 0;
+      totalTrades++;
+      if (currentPrice > entryPrice) winningTrades++;
+    }
 
-    // Trade tracking
-    let totalTrades = 0;
-    let winningTrades = 0;
-    let entryPrice = 0;
+    const currentEquity = cash + btcPosition * currentPrice;
+    if (currentEquity > peakEquity) peakEquity = currentEquity;
+    const dd = (peakEquity - currentEquity) / peakEquity;
+    if (dd > maxDrawdown) maxDrawdown = dd;
 
-    // Slide window loop starting at index 50 to provide sufficient lookback buffer
-    for (let i = 50; i < rawCandles.length; i++) {
-      const subCandles = rawCandles.slice(i - 50, i + 1);
-      const currentCandle = subCandles[subCandles.length - 1];
-      const currentPrice = parseFloat(currentCandle[4]);
-      const currentVolume = parseFloat(currentCandle[5]);
+    const equityChange = currentEquity - prevEquity;
+    regimePnL[regime] = (regimePnL[regime] || 0) + equityChange;
 
-      // Calculate indicators
-      const closes = subCandles.map(c => parseFloat(c[4]));
-      const sum = closes.reduce((a, b) => a + b, 0);
-      const avg = sum / closes.length;
-      
-      const ema12 = closes.slice(-12).reduce((a, b) => a + b, 0) / 12;
-      const ema26 = closes.slice(-26).reduce((a, b) => a + b, 0) / 26;
-      const vol = stdDev(closes.slice(-24), avg);
-      const rsi = calculateRSI(closes);
+    const hr = (currentEquity - prevEquity) / prevEquity;
+    hourlyReturns.push(hr);
+    prevEquity = currentEquity;
 
-      // 1. Get Regime Classification & Weights
-      const regimeResult = localDetectRegime(currentPrice, ema12, ema26, vol, rsi);
+    const holdEquity = holdBtc * currentPrice;
 
-      // 2. Generate Agent Signals
-      const dummyMarketData: MarketData = { symbol: 'BTCUSDT', price: currentPrice, timestamp: new Date().toISOString() };
-      
-      const trendSignal = await trendAgent.generateSignal(dummyMarketData, subCandles);
-      const meanSignal = await meanReversionAgent.generateSignal(dummyMarketData, subCandles);
-      const momSignal = await momentumAgent.generateSignal(dummyMarketData, subCandles);
-
-      // Emulate News Sentiment Agent using recent price velocity
-      const price1hChange = (closes[closes.length - 1] - closes[closes.length - 2]) / closes[closes.length - 2];
-      const newsAction = price1hChange > 0.002 ? 'BUY' : price1hChange < -0.002 ? 'SELL' : 'HOLD';
-      const newsSignal: AgentSignal = {
-        agentId: 'news_agent',
-        action: newsAction,
-        confidence: 0.75,
-        reasoning: 'Velocity proxy news sentiment.',
-        timestamp: new Date().toISOString()
-      };
-
-      // 3. Aggregate Signals
-      const w = regimeResult.weights;
-      const signals = [trendSignal, meanSignal, momSignal, newsSignal];
-      
-      let compositeScore = 0;
-      signals.forEach(s => {
-        const value = s.action === 'BUY' ? 1.0 : s.action === 'SELL' ? -1.0 : 0.0;
-        let weight = 0.25;
-        if (s.agentId === 'trend_agent') weight = w.trendAgent;
-        if (s.agentId === 'mean_reversion_agent') weight = w.meanReversionAgent;
-        if (s.agentId === 'momentum_agent') weight = w.momentumAgent;
-        if (s.agentId === 'news_agent') weight = w.newsAgent;
-
-        compositeScore += value * weight * s.confidence;
+    // Record one data point per 4 hours (every 4th candle) to keep payload small
+    if ((i - 50) % 4 === 0) {
+      dataPoints.push({
+        timestamp: candleTimestamp,
+        price: currentPrice,
+        systemEquity: parseFloat(currentEquity.toFixed(2)),
+        holdEquity: parseFloat(holdEquity.toFixed(2)),
+        regime,
+        drawdown: parseFloat((dd * 100).toFixed(2))
       });
-
-      // Formulation Decision
-      let decision = 'HOLD';
-      if (compositeScore > 0.2) decision = 'BUY';
-      else if (compositeScore < -0.2) decision = 'SELL';
-
-      // 4. Simulate Executions
-      if (decision === 'BUY' && cash > 50) {
-        // Use 95% of available cash to buy BTC (simulating spot)
-        const buyAmount = cash * 0.95;
-        const fees = buyAmount * 0.001; // 0.1% spot trading fee
-        btcPosition += (buyAmount - fees) / currentPrice;
-        cash -= buyAmount;
-        entryPrice = currentPrice;
-        totalTrades++;
-      } else if (decision === 'SELL' && btcPosition > 0.0001) {
-        // Liquidate BTC holdings
-        const sellVal = btcPosition * currentPrice;
-        const fees = sellVal * 0.001;
-        cash += (sellVal - fees);
-        btcPosition = 0;
-        totalTrades++;
-        if (currentPrice > entryPrice) {
-          winningTrades++;
-        }
-      }
-
-      // Track daily portfolio equity
-      const currentEquity = cash + (btcPosition * currentPrice);
-      if (currentEquity > peakEquity) {
-        peakEquity = currentEquity;
-      }
-      const dd = (peakEquity - currentEquity) / peakEquity;
-      if (dd > maxDrawdown) {
-        maxDrawdown = dd;
-      }
-
-      // Track hourly returns for Sharpe Ratio
-      const hrReturn = (currentEquity - prevEquity) / prevEquity;
-      hourlyReturns.push(hrReturn);
-      prevEquity = currentEquity;
     }
-
-    // Performance Calculations
-    const finalPrice = parseFloat(rawCandles[rawCandles.length - 1][4]);
-    const startPrice = parseFloat(rawCandles[50][4]);
-    const finalEquity = cash + (btcPosition * finalPrice);
-    
-    const systemReturn = ((finalEquity - 10000.0) / 10000.0) * 100.0;
-    const holdReturn = ((finalPrice - startPrice) / startPrice) * 100.0;
-    const winRate = totalTrades > 0 ? (winningTrades / (totalTrades / 2)) * 100 : 0; // trades / 2 to get complete cycles
-
-    // Sharpe Ratio
-    const avgReturn = hourlyReturns.reduce((a, b) => a + b, 0) / hourlyReturns.length;
-    const variance = hourlyReturns.reduce((a, b) => a + Math.pow(b - avgReturn, 2), 0) / hourlyReturns.length;
-    const stdDevReturn = Math.sqrt(variance);
-    const hourlySharpe = stdDevReturn > 0 ? avgReturn / stdDevReturn : 0;
-    const annualizedSharpe = hourlySharpe * Math.sqrt(365 * 24); // Annualized from hourly
-
-    console.log(`\n${colors.cyan}${colors.bold}======================================================================${colors.reset}`);
-    console.log(`${colors.cyan}${colors.bold}📈 BACKTEST RESULTS SUMMARY (30-DAY BACKTEST)${colors.reset}`);
-    console.log(`${colors.cyan}${colors.bold}======================================================================${colors.reset}`);
-    console.log(`💰 Starting Capital    : 10,000.00 USDT`);
-    console.log(`💵 Ending Capital      : ${finalEquity.toFixed(2)} USDT`);
-    console.log(`🚀 System Total Return  : ${systemReturn.toFixed(2)}%`);
-    console.log(`📈 Buy & Hold Return   : ${holdReturn.toFixed(2)}%`);
-    console.log(`📊 Outperformance      : ${(systemReturn - holdReturn).toFixed(2)}%`);
-    console.log(`🔄 Total Trades Simulated: ${totalTrades}`);
-    console.log(`🎯 Win Rate            : ${Math.min(winRate, 100).toFixed(1)}%`);
-    console.log(`📉 Max Drawdown        : ${(maxDrawdown * 100).toFixed(2)}%`);
-    console.log(`🛡️ Sharpe Ratio        : ${annualizedSharpe.toFixed(2)}`);
-    console.log(`${colors.cyan}${colors.bold}======================================================================${colors.reset}\n`);
-
-  } catch (error: any) {
-    console.error('❌ Backtester failed with error:', error.message || error);
   }
+
+  const finalPrice = parseFloat(rawCandles[rawCandles.length - 1][4]);
+  const finalEquity = cash + btcPosition * finalPrice;
+  const holdFinal = holdBtc * finalPrice;
+
+  const avgReturn = hourlyReturns.reduce((a, b) => a + b, 0) / hourlyReturns.length;
+  const variance = hourlyReturns.reduce((a, b) => a + Math.pow(b - avgReturn, 2), 0) / hourlyReturns.length;
+  const sharpe = Math.sqrt(variance) > 0 ? (avgReturn / Math.sqrt(variance)) * Math.sqrt(365 * 24) : 0;
+
+  return {
+    dataPoints,
+    startingCapital: STARTING_CAPITAL,
+    endingCapital: parseFloat(finalEquity.toFixed(2)),
+    holdEndingCapital: parseFloat(holdFinal.toFixed(2)),
+    systemReturnPct: parseFloat((((finalEquity - STARTING_CAPITAL) / STARTING_CAPITAL) * 100).toFixed(2)),
+    holdReturnPct: parseFloat((((holdFinal - STARTING_CAPITAL) / STARTING_CAPITAL) * 100).toFixed(2)),
+    outperformancePct: parseFloat((((finalEquity - STARTING_CAPITAL) / STARTING_CAPITAL - (holdFinal - STARTING_CAPITAL) / STARTING_CAPITAL) * 100).toFixed(2)),
+    totalTrades,
+    winRate: totalTrades > 0 ? parseFloat(((winningTrades / Math.max(1, totalTrades / 2)) * 100).toFixed(1)) : 0,
+    maxDrawdownPct: parseFloat((maxDrawdown * 100).toFixed(2)),
+    sharpeRatio: parseFloat(sharpe.toFixed(2)),
+    regimeCounts,
+    regimePnL: {
+      Trending: parseFloat(regimePnL.Trending.toFixed(2)),
+      Sideways: parseFloat(regimePnL.Sideways.toFixed(2)),
+      Volatile: parseFloat(regimePnL.Volatile.toFixed(2))
+    },
+    completedAt: new Date().toISOString()
+  };
 }
 
-runBacktest();
+// CLI entrypoint
+if (require.main === module) {
+  (async () => {
+    console.log('\x1b[36m\x1b[1m======================================================================\x1b[0m');
+    console.log('\x1b[36m\x1b[1m📊 REGIME-AWARE MULTI-AGENT BACKTESTING ENGINE\x1b[0m');
+    console.log('\x1b[36m\x1b[1m======================================================================\x1b[0m');
+    console.log('⏳ Fetching 30 days of hourly BTC spot candles from Bitget...');
+    try {
+      const result = await computeBacktest();
+      console.log(`\n\x1b[36m\x1b[1m======================================================================\x1b[0m`);
+      console.log(`\x1b[36m\x1b[1m📈 BACKTEST RESULTS — 30 DAYS\x1b[0m`);
+      console.log(`\x1b[36m\x1b[1m======================================================================\x1b[0m`);
+      console.log(`💰 Starting Capital      : $${result.startingCapital.toLocaleString()}`);
+      console.log(`💵 Ending Capital        : $${result.endingCapital.toLocaleString()}`);
+      console.log(`🚀 System Total Return   : ${result.systemReturnPct}%`);
+      console.log(`📈 Buy & Hold Return     : ${result.holdReturnPct}%`);
+      console.log(`📊 Alpha (Outperformance): ${result.outperformancePct}%`);
+      console.log(`🔄 Total Trades          : ${result.totalTrades}`);
+      console.log(`🎯 Win Rate              : ${result.winRate}%`);
+      console.log(`📉 Max Drawdown          : ${result.maxDrawdownPct}%`);
+      console.log(`🛡️  Sharpe Ratio          : ${result.sharpeRatio}`);
+      console.log(`🗓️  Regime Distribution    : Trending=${result.regimeCounts.Trending || 0}, Sideways=${result.regimeCounts.Sideways || 0}, Volatile=${result.regimeCounts.Volatile || 0}`);
+      console.log(`\x1b[36m\x1b[1m======================================================================\x1b[0m\n`);
+    } catch (e: any) {
+      console.error('❌ Backtester failed:', e.message);
+    }
+  })();
+}

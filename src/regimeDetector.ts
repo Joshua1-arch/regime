@@ -38,6 +38,8 @@ export interface RegimeDetectionResult {
     priceChange1h: number;
     fundingRate: number;
     btcDominance: number;
+    fearGreedIndex: number;
+    fearGreedLabel: string;
   };
   timestamp: string;
 }
@@ -175,6 +177,28 @@ export class MarketRegimeDetector {
   }
 
   /**
+   * Fetches the Crypto Fear & Greed Index from Alternative.me (free, no API key required).
+   * Score: 0=Extreme Fear, 25=Fear, 50=Neutral, 75=Greed, 100=Extreme Greed
+   * Falls back to 50 (Neutral) if unavailable.
+   */
+  async fetchFearGreedIndex(): Promise<{ value: number; label: string }> {
+    try {
+      const res = await axios.get('https://api.alternative.me/fng/?limit=1', { timeout: 5000 });
+      const entry = res.data?.data?.[0];
+      if (entry && entry.value) {
+        const val = parseInt(entry.value, 10);
+        const label = entry.value_classification || 'Neutral';
+        console.log(`😨 Fear & Greed Index: ${val} (${label})`);
+        return { value: val, label };
+      }
+      throw new Error('No data in F&G response');
+    } catch (err: any) {
+      console.warn(`⚠️ Fear & Greed fetch failed: ${err.message}. Defaulting to Neutral (50).`);
+      return { value: 50, label: 'Neutral' };
+    }
+  }
+
+  /**
    * Helper to calculate Exponential Moving Average (EMA)
    */
   private calculateEMA(prices: number[], period: number): number[] {
@@ -223,9 +247,12 @@ export class MarketRegimeDetector {
       console.log('🕯️ Fetching BTC/USDT hourly candles from Bitget...');
       const candles = await this.fetchBTCSpotCandles(26);
 
-      // 2. Fetch funding rate
-      console.log('💸 Fetching BTC funding rate from Bitget...');
-      const fundingRate = await this.fetchBTCFundingRate();
+      // 2. Fetch funding rate + Fear & Greed in parallel
+      console.log('💸 Fetching BTC funding rate + Fear & Greed Index...');
+      const [fundingRate, fearGreed] = await Promise.all([
+        this.fetchBTCFundingRate(),
+        this.fetchFearGreedIndex()
+      ]);
 
       // 3. Fetch BTC dominance
       console.log('📊 Fetching BTC dominance from Dune...');
@@ -255,7 +282,9 @@ export class MarketRegimeDetector {
         volatility,
         priceChange1h,
         fundingRate,
-        btcDominance
+        btcDominance,
+        fearGreedIndex: fearGreed.value,
+        fearGreedLabel: fearGreed.label
       };
 
       console.log('Snapshot calculated:', JSON.stringify(snapshot, null, 2));
@@ -266,23 +295,24 @@ export class MarketRegimeDetector {
       }
 
       const prompt = `
-You are an expert quantitative trading assistant. Analyze the following BTC/USDT market metrics and classify the current market regime:
+You are an expert quantitative trading assistant. Analyze the following BTC/USDT market metrics and classify the current market regime.
 
-Market Snapshot:
-- Current Price: $${lastClose}
-- EMA(12): $${ema12.toFixed(2)}
-- EMA(26): $${ema26.toFixed(2)}
-- Volatility (1h standard deviation of close prices over 26h): $${volatility.toFixed(2)}
+Market Data Snapshot:
+- Current Price: $${lastClose.toFixed(2)}
+- EMA(12): $${ema12.toFixed(2)} | EMA(26): $${ema26.toFixed(2)}
+- EMA Spread: ${((Math.abs(ema12 - ema26) / lastClose) * 100).toFixed(3)}% (>0.5% = directional)
+- Hourly Volatility (std dev of 26 closes): $${volatility.toFixed(2)}
 - 1h Price Change: ${priceChange1h.toFixed(4)}%
-- Funding Rate: ${(fundingRate * 100).toFixed(4)}% (Interval: 8h)
-- BTC Dominance: ${btcDominance.toFixed(2)}%
+- Futures Funding Rate: ${(fundingRate * 100).toFixed(4)}% per 8h (positive = long-heavy, negative = short-heavy)
+- BTC Market Dominance: ${btcDominance.toFixed(2)}% (>55% = altcoin capital rotating to BTC)
+- Crypto Fear & Greed Index: ${fearGreed.value}/100 — ${fearGreed.label} (0=Extreme Fear, 100=Extreme Greed)
 
-Classification options:
-- 'Trending': Strong directional movement (EMA12 cross EMA26, high price change). Assign high weight to Trend and Momentum.
-- 'Sideways': Low volatility, flat price change, range-bound. Assign high weight to Mean Reversion.
-- 'Volatile': High volatility, high price change, unstable. Assign high weight to News Reactive and Momentum.
+Regime Classification Rules:
+- 'Trending': EMA spread >0.5%, strong 1h price change, Fear&Greed in Greed zone (>60). Weight Trend + Momentum agents highest.
+- 'Sideways': EMA spread <0.3%, low volatility, flat price action, F&G near neutral (40-60). Weight Mean Reversion highest.
+- 'Volatile': Very high volatility, rapid price swings, Extreme Fear (<25) or Extreme Greed (>80), elevated funding rate. Weight Momentum + News highest.
 
-Respond ONLY with a valid JSON object in the following format (no markdown blocks, no leading/trailing text):
+Respond ONLY with a valid JSON object in this exact format (no markdown, no extra text):
 {
   "regime": "Trending" | "Sideways" | "Volatile",
   "confidence": 0.85,
@@ -292,9 +322,9 @@ Respond ONLY with a valid JSON object in the following format (no markdown block
     "momentumAgent": 0.30,
     "newsAgent": 0.20
   },
-  "reasoning": "Explain reasoning in 2 sentences."
+  "reasoning": "2-sentence explanation referencing the specific data points above."
 }
-IMPORTANT: The sum of weights in your response must be exactly 1.0. All values in weights must be positive numbers.
+CRITICAL: weights must sum to exactly 1.0. All weight values must be positive numbers between 0.05 and 0.60.
 `;
 
       console.log('🤖 Sending prompt to Qwen LLM (qwen-plus)...');
@@ -373,7 +403,9 @@ IMPORTANT: The sum of weights in your response must be exactly 1.0. All values i
           volatility: 0,
           priceChange1h: 0,
           fundingRate: 0,
-          btcDominance: 52
+          btcDominance: 52,
+          fearGreedIndex: 50,
+          fearGreedLabel: 'Neutral'
         },
         timestamp
       };

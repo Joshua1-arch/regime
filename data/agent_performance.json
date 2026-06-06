@@ -1,0 +1,110 @@
+{
+  "totalRounds": 329,
+  "agentStats": {
+    "Trending": {
+      "trend_agent": {
+        "wins": 4,
+        "losses": 3,
+        "totalPulls": 29,
+        "cumulativeReward": 1
+      },
+      "mean_reversion_agent": {
+        "wins": 0,
+        "losses": 0,
+        "totalPulls": 29,
+        "cumulativeReward": 0
+      },
+      "momentum_agent": {
+        "wins": 0,
+        "losses": 0,
+        "totalPulls": 29,
+        "cumulativeReward": 0
+      },
+      "news_agent": {
+        "wins": 3,
+        "losses": 4,
+        "totalPulls": 29,
+        "cumulativeReward": -1
+      }
+    },
+    "Sideways": {
+      "trend_agent": {
+        "wins": 0,
+        "losses": 1,
+        "totalPulls": 17,
+        "cumulativeReward": -1
+      },
+      "mean_reversion_agent": {
+        "wins": 0,
+        "losses": 0,
+        "totalPulls": 17,
+        "cumulativeReward": 0
+      },
+      "momentum_agent": {
+        "wins": 0,
+        "losses": 0,
+        "totalPulls": 17,
+        "cumulativeReward": 0
+      },
+      "news_agent": {
+        "wins": 0,
+        "losses": 0,
+        "totalPulls": 17,
+        "cumulativeReward": 0
+      }
+    },
+    "Volatile": {
+      "trend_agent": {
+        "wins": 6,
+        "losses": 5,
+        "totalPulls": 283,
+        "cumulativeReward": 1
+      },
+      "mean_reversion_agent": {
+        "wins": 0,
+        "losses": 0,
+        "totalPulls": 283,
+        "cumulativeReward": 0
+      },
+      "momentum_agent": {
+        "wins": 0,
+        "losses": 0,
+        "totalPulls": 283,
+        "cumulativeReward": 0
+      },
+      "news_agent": {
+        "wins": 20,
+        "losses": 16,
+        "totalPulls": 283,
+        "cumulativeReward": 4
+      }
+    },
+    "Unknown": {
+      "trend_agent": {
+        "wins": 0,
+        "losses": 0,
+        "totalPulls": 0,
+        "cumulativeReward": 0
+      },
+      "mean_reversion_agent": {
+        "wins": 0,
+        "losses": 0,
+        "totalPulls": 0,
+        "cumulativeReward": 0
+      },
+      "momentum_agent": {
+        "wins": 0,
+        "losses": 0,
+        "totalPulls": 0,
+        "cumulativeReward": 0
+      },
+      "news_agent": {
+        "wins": 0,
+        "losses": 0,
+        "totalPulls": 0,
+        "cumulativeReward": 0
+      }
+    }
+  },
+  "lastUpdated": "2026-06-06T21:52:27.836Z"
+}
