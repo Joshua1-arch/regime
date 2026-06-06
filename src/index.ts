@@ -10,7 +10,7 @@ dotenv.config();
 
 // CONFIGURABLE FLAGS FOR DEMO AND RECORDING
 const DEMO_MODE = true; // When true, runs cycle every 30 seconds instead of 5 minutes
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 // ANSI Color codes for clean terminal highlights
 const colors = {

@@ -36,6 +36,8 @@ const TechLogo = ({ name, subtitle }: { name: string; subtitle: string }) => (
 );
 
 export default function Home() {
+  const dashboardUrl = process.env.NEXT_PUBLIC_DASHBOARD_URL || "http://localhost:3000";
+
   const scrollToDashboard = () => {
     const el = document.getElementById("dashboard");
     if (el) el.scrollIntoView({ behavior: "smooth" });
@@ -256,13 +258,13 @@ export default function Home() {
               <span className="w-3 h-3 rounded-full bg-amber-500" />
               <span className="w-3 h-3 rounded-full bg-emerald-500" />
             </div>
-            <span className="text-[11px] font-mono text-slate-500 font-bold tracking-wider">http://localhost:3000</span>
+            <span className="text-[11px] font-mono text-slate-500 font-bold tracking-wider">{dashboardUrl}</span>
             <div className="w-12" />
           </div>
           
           <div className="relative w-full h-[620px] bg-[#090d16]">
             <iframe 
-              src="http://localhost:3000" 
+              src={dashboardUrl} 
               className="w-full h-full border-none"
               title="Live Trading System Dashboard"
             />
