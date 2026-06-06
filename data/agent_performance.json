@@ -1,5 +1,4 @@
 {
-  "totalRounds": 329,
   "agentStats": {
     "Trending": {
       "trend_agent": {
@@ -57,26 +56,26 @@
       "trend_agent": {
         "wins": 6,
         "losses": 5,
-        "totalPulls": 283,
+        "totalPulls": 320,
         "cumulativeReward": 1
       },
       "mean_reversion_agent": {
         "wins": 0,
         "losses": 0,
-        "totalPulls": 283,
+        "totalPulls": 320,
         "cumulativeReward": 0
       },
       "momentum_agent": {
         "wins": 0,
         "losses": 0,
-        "totalPulls": 283,
+        "totalPulls": 320,
         "cumulativeReward": 0
       },
       "news_agent": {
-        "wins": 20,
-        "losses": 16,
-        "totalPulls": 283,
-        "cumulativeReward": 4
+        "wins": 26,
+        "losses": 24,
+        "totalPulls": 320,
+        "cumulativeReward": 2
       }
     },
     "Unknown": {
@@ -106,5 +105,6 @@
       }
     }
   },
-  "lastUpdated": "2026-06-06T21:52:27.836Z"
+  "lastUpdated": "2026-06-06T22:31:17.509Z",
+  "totalRounds": 366
 }

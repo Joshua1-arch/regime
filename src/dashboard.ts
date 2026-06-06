@@ -381,6 +381,37 @@ export class DashboardServer {
       }
     }
 
+    @media (max-width: 768px) {
+      body {
+        padding: 12px;
+      }
+      header {
+        flex-direction: column;
+        gap: 16px;
+        align-items: flex-start;
+        padding: 16px 20px;
+      }
+      .logo-container {
+        flex-direction: row;
+        align-items: center;
+      }
+      h1 {
+        font-size: 18px;
+      }
+      .card {
+        padding: 16px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      header {
+        align-items: stretch;
+      }
+      header a {
+        justify-content: center;
+      }
+    }
+
     .card {
       background: var(--bg-card);
       border: 1px solid var(--border-color);
@@ -404,7 +435,7 @@ export class DashboardServer {
     /* Metrics Row */
     .metrics-row {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       gap: 16px;
     }
 
@@ -559,15 +590,13 @@ export class DashboardServer {
     .action-badge.hold { background: rgba(156, 163, 175, 0.15); color: var(--text-muted); border: 1px solid var(--border-color); }
 
     .reasoning-cell {
-      max-width: 300px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    
-    .reasoning-cell:hover {
+      min-width: 280px;
+      max-width: 500px;
       white-space: normal;
-      overflow: visible;
+      word-break: break-word;
+      line-height: 1.4;
+      color: var(--text-muted);
+      font-size: 12px;
     }
 
     .empty-row {
@@ -628,7 +657,7 @@ export class DashboardServer {
         <div class="card">
           <div class="card-title">MARKET ANALYSIS SNAPSHOT</div>
           
-          <div class="metrics-row" style="grid-template-columns: repeat(4, 1fr);">
+          <div class="metrics-row">
             <div class="metric-box">
               <span class="metric-label">BTC/USDT Price</span>
               <span class="metric-value" id="btc-price">$0.00</span>

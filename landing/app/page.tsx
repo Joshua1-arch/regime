@@ -86,7 +86,7 @@ export default function Home() {
       {/* Navigation Bar */}
       <nav className="sticky top-0 z-50 backdrop-blur-md bg-[#0a0f1e]/80 border-b border-slate-900 py-4 px-6 md:px-12 flex justify-between items-center">
         <div className="flex items-center gap-3">
-          <div className="w-3.5 h-3.5 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
+          <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
           <span className="font-bold text-sm tracking-wider uppercase text-slate-200">REGIME SYSTEM</span>
         </div>
         <div className="hidden md:flex items-center gap-8 text-xs font-semibold tracking-wider text-slate-400 uppercase">
@@ -314,7 +314,7 @@ export default function Home() {
       <section id="dashboard" className="px-6 py-20 max-w-6xl mx-auto z-10 w-full">
         <div className="text-center mb-12">
           <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-white mb-3">Live System Feed</h2>
-          <p className="text-sm text-slate-500 max-w-md mx-auto">Direct iframe viewing of the local portfolio dashboard server running on port 3000.</p>
+          <p className="text-sm text-slate-500 max-w-md mx-auto">Open the interactive portfolio manager, agent execution logs, and UCB1 weight matrices.</p>
         </div>
 
         {/* Dashboard Shell Mockup */}
@@ -329,12 +329,36 @@ export default function Home() {
             <div className="w-12" />
           </div>
           
-          <div className="relative w-full h-[620px] bg-[#090d16]">
-            <iframe 
-              src={dashboardUrl} 
-              className="w-full h-full border-none"
-              title="Live Trading System Dashboard"
-            />
+          <div className="relative w-full h-[500px] bg-[#070b19] flex flex-col items-center justify-center p-8 overflow-hidden">
+            {/* Grid & Glow Graphics */}
+            <div className="absolute inset-0 bg-[linear-gradient(to_right,#0c1328_1px,transparent_1px),linear-gradient(to_bottom,#0c1328_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] opacity-30" />
+            <div className="absolute w-80 h-80 rounded-full bg-blue-500/10 blur-[80px]" />
+            
+            {/* Launch Content Card */}
+            <div className="relative z-10 max-w-lg text-center flex flex-col items-center gap-6 p-8 bg-[#0b1022]/85 border border-slate-800/80 rounded-2xl backdrop-blur-md shadow-2xl">
+              <div className="w-16 h-16 rounded-2xl bg-blue-950/50 border border-blue-500/30 flex items-center justify-center shadow-lg shadow-blue-500/5">
+                <svg className="w-8 h-8 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v16.5M21 19.5H3.75M6.75 12h.008v.008H6.75V12zm0 3.75h.008v.008H6.75v-.008zm3.375-3.75h.008v.008h-.008V12zm0 3.75h.008v.008h-.008v-.008zm3.375-7.5h.008v.008h-.008V8.25zm0 3.75h.008v.008h-.008V12zm0 3.75h.008v.008h-.008v-.008zm3.375-7.5h.008v.008h-.008V8.25zm0 3.75h.008v.008h-.008V12zm0 3.75h.008v.008h-.008v-.008zM14.25 5.25h.008v.008h-.008V5.25zm0 3.75h.008v.008h-.008V9zm0 3.75h.008v.008h-.008V12.75zm3.375-7.5h.008v.008h-.008V5.25zm0 3.75h.008v.008h-.008V9z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white mb-2">Regime-Aware Portfolio Engine</h3>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
+                  Access live agent weights, UCB1 bandit learning matrices, news analysis, and order execution logs.
+                </p>
+              </div>
+              <a 
+                href={dashboardUrl} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider bg-blue-600 hover:bg-blue-500 text-white px-7 py-3.5 rounded-xl transition-all shadow-lg shadow-blue-600/30 hover:scale-[1.02]"
+              >
+                Launch Live Dashboard 🚀
+              </a>
+              <span className="text-[10px] text-slate-600 font-semibold tracking-wider uppercase">
+                Opens in a new tab • {dashboardUrl.replace('http://', '').replace('https://', '')}
+              </span>
+            </div>
           </div>
         </div>
       </section>
